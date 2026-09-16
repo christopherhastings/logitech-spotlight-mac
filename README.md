@@ -122,6 +122,14 @@ updates the remote's firmware, and it does several things this does not.
 This is an independent alternative for people who would rather not run a vendor
 background service, or who want something small and readable they can change.
 
+Some context worth knowing: the Spotlight is discontinued hardware, and the app it
+originally shipped with on macOS — *Logitech Presentation* — is
+[no longer supported or maintained](https://support.logi.com/hc/en-us/articles/360025141634-Logitech-Presentation).
+Presenters were folded into Logi Options+ afterwards. Boxes from the original
+run may still describe the software situation as it was at the time. An
+open-source driver that talks straight to the receiver does not depend on any of
+that continuing.
+
 | | Logi Options+ | Presenter |
 |---|---|---|
 | Highlight / spotlight | yes | yes |
