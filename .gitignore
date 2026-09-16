@@ -1,0 +1,13 @@
+# Build output
+Presenter.app/
+Presenter Installer/
+tools/hiddump
+tools/hidpp_probe
+tools/capture-remote
+tools/learn-remote
+tools/diag-remote
+tools/remote-status
+tools/receiver-pairing
+
+# macOS
+.DS_Store

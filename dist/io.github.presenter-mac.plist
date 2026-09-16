@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>io.github.presenter-mac</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Applications/Presenter.app/Contents/MacOS/Presenter</string>
+  </array>
+
+  <!-- Started by the receiver appearing, not at login. Plug the dongle in and the
+       app starts; it is not running otherwise. IOKit also fires this for a device
+       that is already attached when the agent loads, so logging in with the dongle
+       already plugged in starts it too. -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>LaunchEvents</key>
+  <dict>
+    <key>com.apple.iokit.matching</key>
+    <dict>
+      <key>io.github.presenter-mac.receiver</key>
+      <dict>
+        <key>IOMatchLaunchStream</key>
+        <true/>
+        <key>IOProviderClass</key>
+        <string>IOUSBHostDevice</string>
+        <key>idVendor</key>
+        <integer>1133</integer>
+        <key>idProduct</key>
+        <integer>50494</integer>
+      </dict>
+      <!-- Older IOKit naming, still how some Macs publish USB devices. -->
+      <key>io.github.presenter-mac.receiver.legacy</key>
+      <dict>
+        <key>IOMatchLaunchStream</key>
+        <true/>
+        <key>IOProviderClass</key>
+        <string>IOUSBDevice</string>
+        <key>idVendor</key>
+        <integer>1133</integer>
+        <key>idProduct</key>
+        <integer>50494</integer>
+      </dict>
+    </dict>
+  </dict>
+
+  <key>ProcessType</key>
+  <string>Interactive</string>
+</dict>
+</plist>
