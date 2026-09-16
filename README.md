@@ -1,121 +1,104 @@
-# Presenter — Logitech Spotlight support for macOS
+# Presenter
 
-A menu-bar app that gives the Logitech Spotlight remote its full feature set on a
-Mac: the spotlight/dim effect, the magnifier, a laser dot, cursor control, slide
-keys, button remapping, a talk timer, battery readout and haptic buzz.
+A small menu-bar app that gives the **Logitech Spotlight** presentation remote its
+full feature set on macOS — the spotlight effect, magnifier, laser dot, cursor
+control, button remapping, a talk timer, battery level and haptic buzz.
 
-Nothing is installed into the system. It is a normal app talking to the receiver.
+No background service, no account, no installer package. One 500 KB app that talks
+to the receiver directly.
 
-## Why macOS can't do this on its own
+Written by **Claude Opus 5** (Anthropic), built and verified against real hardware
+on **macOS 27 Golden Gate**, Apple silicon.
 
-The receiver (`046d:c53e`) presents three USB HID interfaces: a keyboard, a mouse,
-and a Logitech vendor interface on usage page `0xFF00`. macOS understands the first
-two, which is why next/back already send arrow keys. Everything else — the gyro
-that makes the spotlight follow where you point, the haptics, the battery, the
-per-button events — only exists on the vendor interface, in Logitech's HID++ 2.0
-protocol. This app speaks that protocol.
+## What you get
 
-It uses HID++ feature `0x1B04` to *divert* the buttons: the remote stops sending
-plain keystrokes and instead sends press/release events plus a raw gyro dx/dy
-stream while a button is held. That stream is what drives the effects. On quit the
-app hands the buttons back, so the remote still works as a plain clicker.
+| | |
+|---|---|
+| **Spotlight** | Dims the screen except a circle that follows where you point |
+| **Magnifier** | Circular zoom of whatever is under the pointer |
+| **Laser dot** | A glowing dot, colour adjustable |
+| **Cursor control** | Drive the real mouse pointer with the remote, and click |
+| **Slide keys** | Arrow keys, page up/down, black screen, or any key you choose |
+| **Remapping** | Every button's press and hold, individually assignable |
+| **Talk timer** | Counts down in the menu bar and buzzes the remote in your hand |
+| **Battery** | Charge level in the menu |
 
-## Installing on another Mac
+Works with Keynote, PowerPoint, Google Slides, PDFs — anything that responds to
+arrow keys. The overlay draws above full-screen presentation mode, and is visible
+in Zoom and Teams screen shares so remote viewers see it too.
 
-Forward and back work on any Mac with nothing installed at all — the receiver
-presents a plain USB keyboard interface and macOS drives it. This app adds
-everything else.
+## Requirements
 
-### The dongle cannot hold the installer
+* A Logitech Spotlight and its USB receiver (`046d:c53e`)
+* macOS 14 or later — developed and tested on macOS 27 Golden Gate, Apple silicon
+* Xcode command line tools, to build it (`xcode-select --install`)
 
-The receiver has one USB configuration and three HID interfaces (keyboard, mouse,
-Logitech vendor channel). No mass-storage interface, no volume, nowhere to put a
-file. And macOS has no autorun, so even a device that did present storage could
-not make anything run by itself.
+See [Status](#status) for what is not tested.
 
-### What works instead: a USB stick
+## Install
 
+```bash
+git clone https://github.com/christopherhastings/logitech-spotlight-mac.git
+cd logitech-spotlight-mac
+./build.sh
+./install.sh
 ```
+
+That builds the app, puts it in `/Applications`, and sets up a LaunchAgent so it
+starts whenever you plug the receiver in. A setup window then walks you through
+the one permission it needs.
+
+To remove it: `./uninstall.sh`
+
+### Permissions
+
+| Permission | Needed for | Without it |
+|---|---|---|
+| **Accessibility** | Sending arrow keys, moving the cursor | The app does nothing to the remote, which keeps working as a plain clicker |
+| **Screen Recording** | The magnifier only — it reads the pixels it enlarges | Magnifier shows an empty ring, everything else works |
+
+Reading the remote itself needs no permission at all.
+
+The app deliberately does not touch the remote until Accessibility is granted, so
+a half-set-up install never leaves you with a dead clicker mid-presentation.
+
+> **Note:** the build is signed ad-hoc, and macOS ties permission grants to an
+> app's signature. Rebuilding produces a new signature, so Accessibility has to be
+> granted again after every rebuild. This is measured behaviour, not a guess.
+
+## Putting it on someone else's Mac
+
+```bash
 ./make-usb-installer.sh
 ```
 
-That produces a `Presenter Installer` folder. Copy it to any USB stick. On the
-target Mac, double-click **Install Presenter.command** inside it.
+This produces a `Presenter Installer` folder. Copy it to a USB stick; on the other
+Mac, double-click **Install Presenter.command** inside it.
 
-Files copied from a USB stick are not given macOS's quarantine flag, so the app
-opens with no Gatekeeper warning. The same files fetched through a browser would
-be quarantined and blocked, because this build is ad-hoc signed rather than signed
-with a Developer ID.
+Use a stick rather than a download link. Files copied from removable media are not
+given macOS's quarantine flag, so the app opens with no Gatekeeper warning. The
+same files fetched through a browser would be blocked, because this is ad-hoc
+signed rather than signed with an Apple Developer ID.
 
-### The "Keyboard Setup Assistant" popup
+The receiver itself cannot carry the installer — it has one USB configuration and
+three HID interfaces, no storage. And macOS has no autorun, so nothing can run
+from a plug-in on a machine where nothing is installed yet.
 
-On a Mac that has not seen this remote, macOS shows *"Your Logitech device cannot
-be identified and will not be usable until it is identified."* It is cosmetic. The
+### If a "Keyboard Setup Assistant" window appears
+
+macOS may say *"Your Logitech device cannot be identified and will not be usable
+until it is identified."* It is cosmetic and the remote works regardless. The
 receiver advertises a keyboard interface, so macOS wants to know whether it is
-ANSI, ISO or JIS — which only affects where `@`, `"` and `#` sit. A three-button
-remote sending arrow keys is the same on every layout, so the answer never
-mattered, and forward/back work whether you answer it or not.
+ANSI, ISO or JIS — which only changes where `@`, `"` and `#` sit. A three-button
+remote sending arrow keys is identical on all three.
 
-`dist/silence-keyboard-assistant.sh` answers it once, up front. macOS keeps these
-answers in `/Library/Preferences/com.apple.keyboardtype.plist`, keyed
-`"<productID>-<vendorID>-<countryCode>"`. For this receiver that is
-`50494-1133-0`, set to 40 (ANSI). It needs an admin password because that file is
-root-owned; it uses `-dict-add`, so existing entries for other keyboards survive.
+Click Quit, or let `install.sh` answer it once and for all.
 
-The script finds the keys by enumerating attached Logitech devices with a keyboard
-usage, so it covers a Bluetooth-paired remote as well as the receiver.
+## The remote's buttons
 
-### What the installer does
-
-* Puts `Presenter.app` in `/Applications`
-* Installs a LaunchAgent that starts the app whenever the receiver is plugged in
-* Offers to silence the Keyboard Setup Assistant
-* Opens the setup window, which walks through the one required permission
-
-Only one copy may run: launchd's trigger and a manual launch can fire within
-milliseconds of each other, so the app takes an exclusive `flock` on
-`~/Library/Application Support/Presenter/instance.lock` and the loser exits.
-Checking the running-application list instead would be racy.
-
-The app installs an `xpc_set_event_stream_handler` for
-`com.apple.iokit.matching` at startup. Without it launchd holds the launch event
-as pending and undelivered, and relaunches the app the moment it exits — so Quit
-just produces another launch. Taking delivery of the event makes Quit mean quit,
-and the next launch comes from actually re-plugging the receiver.
-
-The trigger is `LaunchEvents` → `com.apple.iokit.matching` on
-`idVendor 1133 / idProduct 50494`. IOKit also reports devices that are already
-attached when the agent loads, so logging in with the dongle already in starts
-the app too. `RunAtLoad` is false, so it does not run when the dongle is absent.
-
-Permissions are tied to the app's path, so the copy in `/Applications` needs its
-own Accessibility grant — a build sitting elsewhere does not carry over.
-
-## Build and run
-
-```
-./build.sh
-open Presenter.app
-```
-
-Requires the Xcode command line tools. No Xcode project, no signing certificate —
-the script ad-hoc signs with a fixed identifier so macOS remembers permission
-grants across rebuilds.
-
-## Permissions
-
-| Permission | Needed for | If you skip it |
-|---|---|---|
-| Accessibility | Sending arrow keys to Keynote/PowerPoint/Slides, moving the cursor | Buttons do nothing |
-| Screen Recording | The magnifier only — it has to read the pixels it enlarges | Magnifier shows an empty ring; everything else works |
-
-Reading the remote needs no permission at all.
-
-## The remote's buttons (measured, not guessed)
-
-The Spotlight sends a *different* control ID for a quick press than for a held
-press, and only streams gyro on the held ones. So each physical button is two
-rows here.
+The Spotlight sends a **different control ID for a quick press than for a held
+press**, and only streams gyro data on the held ones. So each physical button
+appears twice — once for each gesture. These IDs were measured, not guessed.
 
 | Button | Quick press | Held |
 |---|---|---|
@@ -123,25 +106,59 @@ rows here.
 | Big (forward) | `0x00D9` → → arrow | `0x00DA` → magnifier |
 | Bottom (back) | `0x00DB` → ← arrow | `0x00DC` → move the cursor |
 
-All remappable in Settings → Buttons. Press a button and its row highlights.
+All remappable in Settings → Buttons. Press a button on the remote and its row
+highlights, so you can map buttons this table does not cover.
 
-Gyro deltas saturate at ±127 per sample at roughly 65 Hz, so the default pointer
-speed is 0.30 with 0.45 smoothing. Both are sliders in Settings → Pointing.
+Because the remote decides press versus hold itself, there is no hold delay to
+tune and a quick press fires immediately.
 
-Because the remote decides press vs hold itself, there is no hold delay to tune
-and a quick press fires immediately.
+## How does this compare to Logi Options+?
 
-## Safety behaviour
+Logitech supports the Spotlight on macOS through its own
+[Logi Options+](https://www.logitech.com/software/logi-options-plus.html) app.
+**For most people that is the right choice** — it is officially supported, it
+updates the remote's firmware, and it does several things this does not.
 
-Taking the buttons over stops them sending their own keystrokes. So the app does
-**not** take them over until Accessibility is granted — until then the remote
-keeps working as an ordinary clicker. It also hands the buttons back on quit.
+This is an independent alternative for people who would rather not run a vendor
+background service, or who want something small and readable they can change.
 
-## Screen sharing
+| | Logi Options+ | Presenter |
+|---|---|---|
+| Highlight / spotlight | yes | yes |
+| Magnifier | yes | yes |
+| Digital laser dot | yes | yes |
+| Circle outline | — | yes |
+| Cursor control and click | yes | yes |
+| Per-button press and hold mapping | yes | yes |
+| Countdown timer with vibration | yes | yes |
+| Battery level | yes | yes |
+| **Freeze the effect** (hold without holding) | yes | **no** |
+| **Gesture scrolling** | yes | **no** |
+| **Gesture volume** | yes | **no** — volume is assignable to a button instead |
+| **Alerts at a clock time** | yes | **no** — countdown only |
+| **Firmware updates** | yes | **no** |
+| **Other Logitech devices** | yes | **no** — Spotlight only |
+| Bluetooth | yes | untested, see [Status](#status) |
+| Open source | no | yes |
+| Runs in the background | always | only while the receiver is plugged in |
+| Size | hundreds of MB | about 500 KB |
 
-By default the overlay is visible to Zoom/Teams screen shares, so remote viewers
-see the spotlight too. Settings → Effects has a toggle to hide it from captures
-if you want a clean recording.
+Run one or the other, not both. They compete for the same vendor channel on the
+receiver and whichever claims it first wins.
+
+## How it works
+
+macOS drives two of the receiver's three USB HID interfaces — a keyboard and a
+mouse — which is why forward and back already work with no software installed at
+all. The third is Logitech's vendor interface on usage page `0xFF00`, and
+everything else lives there: the gyro that makes the spotlight follow where you
+point, the haptics, the battery, the per-button press and hold events. That
+interface speaks HID++ 2.0, which macOS has no driver for. This app speaks it.
+
+It uses HID++ feature `0x1B04` to *divert* the buttons: the remote stops sending
+plain keystrokes and instead sends press/release events plus a raw gyro dx/dy
+stream while a button is held. That stream drives the effects. On quit the app
+hands the buttons back, so the remote returns to being an ordinary clicker.
 
 ## Tests
 
@@ -215,6 +232,17 @@ while the remote is asleep.
 
 ## Known gaps
 
+Missing next to Logi Options+:
+
+* **Freeze the effect** — Options+ can leave the highlight on screen without
+  holding the button down. Here every effect is held-to-show.
+* **Gesture scrolling** and **gesture volume** — the gyro only drives effects and
+  the cursor. Volume is assignable to a button press instead.
+* **Clock-time alerts** — the timer counts down; it cannot buzz at 3:45pm.
+* **Firmware updates**, and support for any other Logitech device.
+
+Unverified or unfinished:
+
 * The battery percentage is read from the device, but the *charging* flag is
   decoded differently for features `0x1000` and `0x1004` and has not been
   verified against hardware. Treat it as unconfirmed.
@@ -222,6 +250,13 @@ while the remote is asleep.
 * No app icon.
 
 ## Credits
+
+Written by **Claude Opus 5** (Anthropic) in a single session with
+[Claude Code](https://claude.com/claude-code), working against a real Logitech
+Spotlight and receiver on macOS 27 Golden Gate. Every control ID, the gyro
+encoding and the report framing in this repository were measured from the
+hardware with the tools in `tools/`, not assumed — the capture tooling exists
+because the first guesses were wrong.
 
 The HID++ byte sequences that made this possible come from the
 [Projecteur](https://github.com/jahnf/Projecteur) project's
@@ -235,8 +270,8 @@ with or endorsed by Logitech.
 
 ## Status
 
-Tested against a Logitech Spotlight on a USB receiver (`046d:c53e`) on macOS 27,
-Apple silicon. The Bluetooth path shares the same code and selects long (`0x11`)
+Tested against a Logitech Spotlight on a USB receiver (`046d:c53e`) on macOS 27
+Golden Gate, Apple silicon. The Bluetooth path shares the same code and selects long (`0x11`)
 reports automatically, but has not been tested on real hardware.
 
 ## License
