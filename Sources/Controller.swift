@@ -10,6 +10,11 @@ final class Controller: NSObject, SpotlightDelegate {
     let overlay = OverlayController()
     private let settings = Settings.shared
 
+    /// Every HID++ exchange blocks until the remote answers or the timeout expires.
+    /// On the main thread that freezes the menu bar, so all device work runs here.
+    /// Button and motion events already arrive on the main queue.
+    private let deviceQueue = DispatchQueue(label: "presenter.device", qos: .userInitiated)
+
     // Per-button gesture state. The remote decides press vs hold for us and sends
     // a different control ID for each, so there is no hold timer here.
     private var pendingClick: [UInt16: Timer] = [:]
@@ -30,6 +35,8 @@ final class Controller: NSObject, SpotlightDelegate {
     /// CIDs seen since launch, so Settings can list real buttons even if the
     /// device's own control table is incomplete.
     private(set) var seenCIDs: [UInt16] = []
+    /// Last thing the remote did, for the status file and for support questions.
+    private(set) var lastEventDescription = "nothing yet"
     var onButtonSeen: ((UInt16) -> Void)?
 
     /// True once we have taken the buttons over. We deliberately do not take them
@@ -53,28 +60,37 @@ final class Controller: NSObject, SpotlightDelegate {
 
     func start() {
         device.delegate = self
-        do {
-            try device.start()
-            battery = device.battery()
-            takeOverIfAllowed()
-        } catch {
-            setStatus("\(error)")
+        deviceQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                try self.device.start()
+                let b = self.device.battery()
+                DispatchQueue.main.async { self.battery = b; self.takeOverIfAllowed() }
+            } catch {
+                DispatchQueue.main.async { self.setStatus("\(error)") }
+            }
         }
     }
 
     /// Take the buttons over only when we can act on them.
     private func takeOverIfAllowed() {
         guard device.connected else { return }
-        if Actions.hasAccessibility {
-            if !diverted { device.divertButtons(); diverted = true }
-            setStatus("\(device.deviceName) ready" + (battery.map { " · \($0.percent)%" } ?? ""))
-        } else {
-            if diverted { device.restoreButtons(); diverted = false }
-            setStatus("Grant Accessibility to enable the remote")
+        let allowed = Actions.hasAccessibility
+        if allowed != diverted {
+            diverted = allowed
+            deviceQueue.async { [weak self] in
+                guard let self else { return }
+                if allowed { self.device.divertButtons() } else { self.device.restoreButtons() }
+            }
         }
+        setStatus(allowed
+                  ? "\(device.deviceName) ready" + (battery.map { " · \($0.percent)%" } ?? "")
+                  : "Grant Accessibility to enable the remote")
     }
 
-    func stop() { device.stop() }
+    /// Runs as the app quits, so it must finish promptly. Diversion is handed back
+    /// with unacknowledged writes, which takes about fifteen milliseconds.
+    func stop() { deviceQueue.sync { device.stop() } }
 
     private var lastBatteryCheck = Date.distantPast
 
@@ -86,25 +102,36 @@ final class Controller: NSObject, SpotlightDelegate {
         if Actions.hasAccessibility != diverted { takeOverIfAllowed() }
         if Date().timeIntervalSince(lastBatteryCheck) > 300 {
             lastBatteryCheck = Date()
-            if let b = device.battery() { battery = b; onStatusChange?() }
+            deviceQueue.async { [weak self] in
+                guard let self, let b = self.device.battery() else { return }
+                DispatchQueue.main.async { self.battery = b; self.onStatusChange?() }
+            }
         }
+        StatusFile.write(self)
     }
 
     /// Called from the menu when the remote was off at launch.
     func reconnect(quiet: Bool = false) {
-        do {
-            try device.connect()
-            diverted = false
-            battery = device.battery()
-            takeOverIfAllowed()
-        } catch {
-            // Background retries stay quiet so the menu does not flicker every few seconds.
-            if !quiet { setStatus("\(error)") }
+        deviceQueue.async { [weak self] in
+            guard let self else { return }
+            do {
+                try self.device.connect()
+                let b = self.device.battery()
+                DispatchQueue.main.async {
+                    self.diverted = false
+                    self.battery = b
+                    self.takeOverIfAllowed()
+                }
+            } catch {
+                // Background retries stay quiet so the menu does not flicker.
+                if !quiet { DispatchQueue.main.async { self.setStatus("\(error)") } }
+            }
         }
     }
 
     private func setStatus(_ s: String) {
         statusText = s
+        StatusFile.write(self)
         onStatusChange?()
     }
 
@@ -115,6 +142,12 @@ final class Controller: NSObject, SpotlightDelegate {
     func spotlight(buttonDown cid: UInt16) {
         if !seenCIDs.contains(cid) { seenCIDs.append(cid); onButtonSeen?(cid) }
         let m = settings.mapping(for: cid)
+        let which = Spotlight.isHoldControl(cid) || device.streamsMotion(cid) ? m.hold : m.click
+        lastEventDescription = String(format: "%@ (0x%04X) -> %@ at %@",
+                                      Spotlight.controlName(cid), cid, which.label,
+                                      DateFormatter.localizedString(from: Date(), dateStyle: .none,
+                                                                    timeStyle: .medium))
+        StatusFile.write(self)
 
         // Controls that stream gyro are the remote's own "held" variants.
         if device.streamsMotion(cid) || Spotlight.isHoldControl(cid) {

@@ -137,6 +137,18 @@ By default the overlay is visible to Zoom/Teams screen shares, so remote viewers
 see the spotlight too. Settings → Effects has a toggle to hide it from captures
 if you want a clean recording.
 
+## Tests
+
+```
+./run-tests.sh
+```
+
+Covers the wire format: packet layout, reply matching, and the button and gyro
+decoders. No remote or receiver needed. Both bugs this project actually hit have
+a test — the report ID missing from byte 0, and a stale acknowledgement being
+read as the answer to the next request — and both mutations were checked to make
+the suite fail.
+
 ## Tools
 
 `tools/capture-remote` connects, prints the device's control list, then prints
@@ -149,7 +161,12 @@ every button and gyro event as it happens. Run it when something is not behaving
 
 Only one process can drive the receiver at a time — quit the app before running it.
 
+`tools/remote-status` is a read-only check: what is connected, the battery, and
+whether the buttons have been taken over.
+
 `tools/hiddump` dumps all three HID interfaces without touching HID++.
+`tools/receiver-pairing` reads the receiver's pairing table, which works even
+while the remote is asleep.
 
 ## Layout
 
@@ -163,6 +180,9 @@ Only one process can drive the receiver at a time — quit the app before runnin
 | `Sources/Settings.swift` | Preferences and the default button map |
 | `Sources/SettingsView.swift` | Preferences window |
 | `Sources/AppDelegate.swift` | Menu bar |
+| `Sources/Onboarding.swift` | First-run setup window |
+| `Sources/StatusFile.swift` | Publishes state to `~/Library/Application Support/Presenter/status.json` |
+| `Sources/SingleInstance.swift` | File lock so only one copy drives the remote |
 
 ## Protocol notes worth keeping
 
@@ -179,6 +199,20 @@ Only one process can drive the receiver at a time — quit the app before runnin
   battery readings and a button-config readback that was shifted by two rows.
 * Report sizes: `0x10` short = 7 bytes, `0x11` long = 20, `0x12` very long = 32.
 * Layout: `[reportID][deviceIndex][featureIndex][funcIdx<<4 | swId][params…]`
+* Diversion is set and cleared with unacknowledged writes. Waiting for an ack per
+  control is seven round trips; on the way out macOS allows an app only a few
+  seconds to quit, and being killed mid-restore leaves the remote diverted and
+  doing nothing at all.
+* Every HID++ exchange blocks. All of it runs off the main thread, or the menu
+  bar freezes while the remote is asleep and each request waits out its timeout.
+
+## Known gaps
+
+* The battery percentage is read from the device, but the *charging* flag is
+  decoded differently for features `0x1000` and `0x1004` and has not been
+  verified against hardware. Treat it as unconfirmed.
+* The Bluetooth path is untested — see Status above.
+* No app icon.
 
 ## Credits
 

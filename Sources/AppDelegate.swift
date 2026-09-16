@@ -30,7 +30,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Poll often while disconnected so the app picks the remote up the moment
         // it is switched on; back off to a battery refresh once it is talking.
         batteryTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
-            self?.controller.poll()
+            guard let self else { return }
+            let was = Actions.hasAccessibility
+            self.controller.poll()
+            if was != Actions.hasAccessibility { self.rebuildMenu() }
         }
 
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification,
@@ -48,6 +51,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func rebuildMenu() {
         let menu = NSMenu()
 
+        // Make a missing permission visible from the menu bar itself, rather than
+        // only once the menu is open.
+        let blocked = !Actions.hasAccessibility
+        statusItem.button?.image = NSImage(
+            systemSymbolName: blocked ? "exclamationmark.triangle.fill"
+                                      : "dot.circle.and.hand.point.up.left.fill",
+            accessibilityDescription: blocked ? "Presenter needs permission" : "Presenter")
+        statusItem.button?.image?.isTemplate = true
+
+        if blocked {
+            let warn = NSMenuItem(title: "Presenter cannot control the remote yet",
+                                  action: nil, keyEquivalent: "")
+            warn.isEnabled = false
+            menu.addItem(warn)
+            menu.addItem(withTitle: "Grant Accessibility…", action: #selector(grantAccessibility),
+                         keyEquivalent: "").target = self
+            menu.addItem(.separator())
+        }
+
         let status = NSMenuItem(title: controller.statusText, action: nil, keyEquivalent: "")
         status.isEnabled = false
         menu.addItem(status)
@@ -63,23 +85,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                          action: #selector(toggleTimer), keyEquivalent: "").target = self
         }
 
-        menu.addItem(.separator())
-        for e in [OverlayEffect.spotlight, .circle, .magnify, .laser] {
-            let item = NSMenuItem(title: "Test: \(e.label)", action: #selector(testEffect(_:)), keyEquivalent: "")
-            item.representedObject = e.rawValue
-            item.target = self
-            menu.addItem(item)
+        // An escape hatch, shown only when there is actually something to dismiss.
+        if controller.overlay.isVisible {
+            menu.addItem(.separator())
+            menu.addItem(withTitle: "Hide overlay", action: #selector(hideOverlay), keyEquivalent: "").target = self
         }
-        menu.addItem(withTitle: "Hide overlay", action: #selector(hideOverlay), keyEquivalent: "").target = self
 
         menu.addItem(.separator())
         menu.addItem(withTitle: "Settings…", action: #selector(openSettings), keyEquivalent: ",").target = self
         menu.addItem(withTitle: "Setup guide…", action: #selector(showOnboarding), keyEquivalent: "").target = self
         menu.addItem(withTitle: "Reconnect remote", action: #selector(reconnect), keyEquivalent: "r").target = self
-        if !Actions.hasAccessibility {
-            menu.addItem(withTitle: "Grant Accessibility…", action: #selector(grantAccessibility),
-                         keyEquivalent: "").target = self
-        }
         menu.addItem(.separator())
         menu.addItem(withTitle: "Quit", action: #selector(quit), keyEquivalent: "q").target = self
 
@@ -113,14 +128,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Actions.requestAccessibility()
         NSWorkspace.shared.open(URL(string:
             "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!)
-    }
-
-    @objc private func testEffect(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String,
-              let e = OverlayEffect(rawValue: raw) else { return }
-        let screen = NSScreen.main?.frame ?? .zero
-        controller.overlay.show(effect: e, at: CGPoint(x: screen.midX, y: screen.midY))
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.controller.overlay.hide() }
     }
 
     @objc private func openSettings() {

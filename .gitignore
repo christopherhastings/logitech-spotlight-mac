@@ -1,8 +1,8 @@
 # Build output
+tools/tests-bin
 Presenter.app/
 Presenter Installer/
 tools/hiddump
-tools/hidpp_probe
 tools/capture-remote
 tools/learn-remote
 tools/diag-remote

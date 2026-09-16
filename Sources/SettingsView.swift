@@ -39,11 +39,17 @@ final class SettingsModel: ObservableObject {
     }
 
     func reloadButtons() {
-        var cids = controller.device.controls.filter { $0.isDivertable }.map { $0.cid }
+        // The three physical buttons, each as its press and its hold.
+        let known: [UInt16] = [0x0050, 0x00D8, 0x00D9, 0x00DA, 0x00DB, 0x00DC]
+        // The device also lists controls no physical button produces. Hide those
+        // until one actually fires, rather than showing dead rows.
+        var cids = controller.device.controls
+            .filter { $0.isDivertable }
+            .map { $0.cid }
+            .filter { known.contains($0) || controller.seenCIDs.contains($0) || s.hasCustomMapping($0) }
         for c in controller.seenCIDs where !cids.contains(c) { cids.append(c) }
-        if cids.isEmpty { cids = [0x0050, 0x00D8, 0x00D9, 0x00DA, 0x00DB, 0x00DC] }
-        let order: [UInt16] = [0x0050, 0x00D8, 0x00D9, 0x00DA, 0x00DB, 0x00DC]
-        cids.sort { (order.firstIndex(of: $0) ?? 99) < (order.firstIndex(of: $1) ?? 99) }
+        if cids.isEmpty { cids = known }
+        cids.sort { (known.firstIndex(of: $0) ?? 99) < (known.firstIndex(of: $1) ?? 99) }
         buttons = cids
         mappings = Dictionary(uniqueKeysWithValues: cids.map { ($0, s.mapping(for: $0)) })
     }

@@ -70,6 +70,60 @@ enum HIDPPError: Error, CustomStringConvertible {
     }
 }
 
+/// How an incoming report relates to a request we sent.
+enum HIDPPReply: Equatable {
+    case answer
+    case failure(UInt8)
+    case unrelated
+}
+
+/// The wire-format rules, kept free of IOKit so they can be tested without hardware.
+enum HIDPPWire {
+    static func size(for reportID: UInt8) -> Int {
+        switch reportID {
+        case 0x10: return 7
+        case 0x11: return 20
+        default:   return 32
+        }
+    }
+
+    /// macOS wants the report ID as byte 0 of the buffer *as well as* the CFIndex
+    /// argument to IOHIDDeviceSetReport. Omitting it shifts every field by one.
+    static func packet(reportID: UInt8, device: UInt8, feature: UInt8,
+                       function: UInt8, swID: UInt8, params: [UInt8]) -> [UInt8] {
+        let n = size(for: reportID)
+        var pkt = [UInt8](repeating: 0, count: n)
+        pkt[0] = reportID
+        pkt[1] = device
+        pkt[2] = feature
+        pkt[3] = (function << 4) | swID
+        for (i, p) in params.enumerated() where 4 + i < n { pkt[4 + i] = p }
+        return pkt
+    }
+
+    /// Decide whether `msg` answers the request described by the other arguments.
+    /// Writes we do not wait on are acknowledged too, so matching on the software
+    /// ID alone lets a stale ack be read as the answer to a later question.
+    static func classify(_ msg: HIDPPMessage, device: UInt8, feature: UInt8,
+                         function: UInt8) -> HIDPPReply {
+        let b = msg.bytes
+        // HID++ 2.0 error: [FF][device][feature][function|swID][code]
+        if msg.reportID == 0xFF {
+            guard b.count > 4, b[2] == feature, (b[3] >> 4) == function else { return .unrelated }
+            return .failure(b[4])
+        }
+        // HID++ 1.0 error: [10][device][8F][origFeature][origFunction][code]
+        if msg.featureIndex == 0x8F {
+            guard b.count > 5, b[3] == feature else { return .unrelated }
+            return .failure(b[5])
+        }
+        guard msg.deviceIndex == device,
+              msg.featureIndex == feature,
+              msg.funcIndex == function else { return .unrelated }
+        return .answer
+    }
+}
+
 /// Owns the receiver's 0xFF00 vendor interface and pumps it on its own run loop thread.
 final class HIDPPLink {
     /// Held for the lifetime of the link — releasing the manager closes the device
@@ -177,10 +231,14 @@ final class HIDPPLink {
                 ? nil                            // 1.0 errors carry no software ID
                 : msg.swID
         }
-        if let sw, sw == swID {
-            lock.lock(); pending.append(msg); lock.signal(); lock.unlock()
-        } else if msg.featureIndex == 0x8F || msg.reportID == 0xFF {
-            lock.lock(); pending.append(msg); lock.signal(); lock.unlock()
+        if (sw != nil && sw == swID) || msg.featureIndex == 0x8F || msg.reportID == 0xFF {
+            lock.lock()
+            pending.append(msg)
+            // Acks for writes we do not wait on land here with nothing reading
+            // them; without a cap they would accumulate for the whole session.
+            if pending.count > 16 { pending.removeFirst(pending.count - 16) }
+            lock.signal()
+            lock.unlock()
         } else {
             onNotification?(msg)
         }
@@ -188,12 +246,8 @@ final class HIDPPLink {
 
     // MARK: requests
 
-    private func write(_ reportID: UInt8, _ payload: [UInt8]) throws {
+    private func write(_ pkt: [UInt8], reportID: UInt8) throws {
         guard let dev = device else { throw HIDPPError.noReceiver }
-        let size = reportID == 0x10 ? 7 : (reportID == 0x11 ? 20 : 32)
-        var pkt = [UInt8](repeating: 0, count: size)
-        pkt[0] = reportID
-        for (i, b) in payload.enumerated() where i + 1 < size { pkt[i + 1] = b }
         let r = pkt.withUnsafeBufferPointer {
             IOHIDDeviceSetReport(dev, kIOHIDReportTypeOutput, CFIndex(reportID), $0.baseAddress!, pkt.count)
         }
@@ -205,10 +259,12 @@ final class HIDPPLink {
     /// rejects short reports, so it always needs 0x11.
     @discardableResult
     func request(reportID: UInt8 = 0, device deviceIndex: UInt8, feature: UInt8,
-                 function: UInt8, params: [UInt8] = [], timeout: TimeInterval = 1.0) throws -> HIDPPMessage {
-        let reportID = reportID == 0 ? transport.shortReportID : reportID
+                 function: UInt8, params: [UInt8] = [], timeout: TimeInterval = 0.5) throws -> HIDPPMessage {
+        let rid = reportID == 0 ? transport.shortReportID : reportID
         lock.lock(); pending.removeAll(); lock.unlock()
-        try write(reportID, [deviceIndex, feature, (function << 4) | swID] + params)
+        try write(HIDPPWire.packet(reportID: rid, device: deviceIndex, feature: feature,
+                                   function: function, swID: swID, params: params),
+                  reportID: rid)
 
         let deadline = Date().addingTimeInterval(timeout)
         while true {
@@ -219,29 +275,21 @@ final class HIDPPLink {
             let msg = pending.removeFirst()
             lock.unlock()
 
-            // HID++ 2.0 error: [FF][dev][feat][func|sw][err]
-            if msg.reportID == 0xFF {
-                guard msg.bytes.count > 4, msg.bytes[2] == feature,
-                      (msg.bytes[3] >> 4) == function else { continue }
-                throw HIDPPError.deviceError(msg.bytes[4])
+            switch HIDPPWire.classify(msg, device: deviceIndex, feature: feature, function: function) {
+            case .answer:            return msg
+            case .failure(let code): throw HIDPPError.deviceError(code)
+            case .unrelated:         continue     // stale ack, or an answer to something else
             }
-            // HID++ 1.0 error: [10][dev][8F][origSubID][origAddress][err]
-            if msg.featureIndex == 0x8F {
-                guard msg.bytes.count > 5, msg.bytes[3] == feature else { continue }
-                throw HIDPPError.deviceError(msg.bytes[5])
-            }
-            guard msg.deviceIndex == deviceIndex,
-                  msg.featureIndex == feature,
-                  msg.funcIndex == function else { continue }   // stale ack or another answer
-            return msg
         }
     }
 
     /// Fire-and-forget (used for vibration, where some firmware never replies).
     func send(reportID: UInt8 = 0, device deviceIndex: UInt8, feature: UInt8,
               function: UInt8, params: [UInt8] = []) throws {
-        try write(reportID == 0 ? transport.shortReportID : reportID,
-                  [deviceIndex, feature, (function << 4) | swID] + params)
+        let rid = reportID == 0 ? transport.shortReportID : reportID
+        try write(HIDPPWire.packet(reportID: rid, device: deviceIndex, feature: feature,
+                                   function: function, swID: swID, params: params),
+                  reportID: rid)
     }
 
     // MARK: root feature lookup

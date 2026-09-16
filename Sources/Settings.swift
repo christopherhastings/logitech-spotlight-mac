@@ -94,7 +94,6 @@ final class Settings {
 
     // Timing
     var doubleClickInterval: Double { get { dbl("doubleClickInterval", 0.30) } set { d.set(newValue, forKey: "doubleClickInterval") } }
-    var holdThreshold: Double { get { dbl("holdThreshold", 0.25) } set { d.set(newValue, forKey: "holdThreshold") } }
 
     // Presentation timer
     var timerMinutes: Int { get { int("timerMinutes", 20) } set { d.set(newValue, forKey: "timerMinutes") } }
@@ -109,6 +108,11 @@ final class Settings {
                              doubleClick: PresenterAction(raw: arr[1]),
                              hold: PresenterAction(raw: arr[2]))
     }
+    /// True if the user has saved anything for this control.
+    func hasCustomMapping(_ cid: UInt16) -> Bool {
+        d.array(forKey: String(format: "cid_%04X", cid)) != nil
+    }
+
     func setMapping(_ m: ButtonMapping, for cid: UInt16) {
         d.set([m.click.raw, m.doubleClick.raw, m.hold.raw], forKey: String(format: "cid_%04X", cid))
     }

@@ -149,24 +149,25 @@ final class Spotlight {
     // MARK: diversion
 
     /// Take over every control the device will let us take over.
-    func divertButtons() {
-        for c in controls where c.isDivertable {
-            // flags: bit0 divert, bit1 dvalid, bit4 rawXY, bit5 rawXYvalid
-            var flags: UInt8 = 0x03                       // divert + dvalid
-            if c.supportsRawXY { flags |= 0x30 }          // rawXY + rawXYvalid
-            _ = try? link.request(reportID: 0x11, device: deviceIndex, feature: fReprog, function: 3,
-                                  params: [UInt8(c.cid >> 8), UInt8(c.cid & 0xFF), flags], timeout: 0.5)
-        }
-    }
+    func divertButtons() { setDiversion(on: true) }
 
     /// Hand the buttons back so the remote still works as a plain clicker after we quit.
-    func restoreButtons() {
+    func restoreButtons() { setDiversion(on: false) }
+
+    /// Neither direction waits for acknowledgements. Seven controls at half a
+    /// second each would be three and a half seconds; on the way out macOS allows
+    /// an app only a few seconds to quit, and being killed mid-restore would leave
+    /// the remote diverted and doing nothing at all. Unacknowledged, it takes
+    /// about fifteen milliseconds.
+    private func setDiversion(on: Bool) {
+        // flags: bit0 divert, bit1 dvalid, bit4 rawXY, bit5 rawXYvalid.
+        // The "valid" bits say which of the others to apply.
         for c in controls where c.isDivertable {
-            var flags: UInt8 = 0x02                       // dvalid, divert off
-            if c.supportsRawXY { flags |= 0x20 }          // rawXYvalid, rawXY off
+            var flags: UInt8 = on ? 0x03 : 0x02
+            if c.supportsRawXY { flags |= on ? 0x30 : 0x20 }
             try? link.send(reportID: 0x11, device: deviceIndex, feature: fReprog, function: 3,
                            params: [UInt8(c.cid >> 8), UInt8(c.cid & 0xFF), flags])
-            usleep(20_000)
+            usleep(2_000)
         }
     }
 
@@ -224,15 +225,8 @@ final class Spotlight {
         }
 
         switch msg.funcIndex {
-        case 0:   // divertedButtons: up to four 16-bit CIDs, zero-padded
-            var now = Set<UInt16>()
-            let b = msg.bytes
-            var i = 4
-            while i + 1 < b.count && i < 12 {
-                let cid = UInt16(b[i]) << 8 | UInt16(b[i + 1])
-                if cid != 0 { now.insert(cid) }
-                i += 2
-            }
+        case 0:
+            let now = Spotlight.decodeButtons(msg.bytes)
             let pressed = now.subtracting(heldCIDs)
             let released = heldCIDs.subtracting(now)
             heldCIDs = now
@@ -241,12 +235,8 @@ final class Spotlight {
                 for c in released { self.delegate?.spotlight(buttonUp: c) }
             }
 
-        case 1:   // divertedRawMouseXy: two big-endian signed 16-bit deltas
-            let b = msg.bytes
-            guard b.count >= 8 else { return }
-            let dx = Int(Int16(bitPattern: UInt16(b[4]) << 8 | UInt16(b[5])))
-            let dy = Int(Int16(bitPattern: UInt16(b[6]) << 8 | UInt16(b[7])))
-            guard dx != 0 || dy != 0 else { return }
+        case 1:
+            guard let (dx, dy) = Spotlight.decodeMotion(msg.bytes) else { return }
             DispatchQueue.main.async { self.delegate?.spotlight(motionDX: dx, dy: dy) }
 
         default:
@@ -254,10 +244,34 @@ final class Spotlight {
         }
     }
 
+    // MARK: event decoding
+
+    /// divertedButtons (event 0): up to four 16-bit control IDs, zero-padded.
+    static func decodeButtons(_ bytes: [UInt8]) -> Set<UInt16> {
+        var out = Set<UInt16>()
+        var i = 4
+        while i + 1 < bytes.count && i < 12 {
+            let cid = UInt16(bytes[i]) << 8 | UInt16(bytes[i + 1])
+            if cid != 0 { out.insert(cid) }
+            i += 2
+        }
+        return out
+    }
+
+    /// divertedRawMouseXy (event 1): two big-endian signed 16-bit deltas.
+    /// Measured on a Spotlight, these saturate at plus or minus 127.
+    static func decodeMotion(_ bytes: [UInt8]) -> (dx: Int, dy: Int)? {
+        guard bytes.count >= 8 else { return nil }
+        let dx = Int(Int16(bitPattern: UInt16(bytes[4]) << 8 | UInt16(bytes[5])))
+        let dy = Int(Int16(bitPattern: UInt16(bytes[6]) << 8 | UInt16(bytes[7])))
+        return (dx == 0 && dy == 0) ? nil : (dx, dy)
+    }
+
     // MARK: naming
 
-    /// Logitech control IDs seen on presenters. Anything unknown shows as its hex CID
-    /// and can still be mapped in Settings.
+    /// Control IDs measured on a Logitech Spotlight. A different Logitech presenter
+    /// will report different ones; those show as their hex ID and can still be
+    /// mapped in Settings.
     static func controlName(_ cid: UInt16) -> String {
         switch cid {
         case 0x0050: return "Top button — press"
