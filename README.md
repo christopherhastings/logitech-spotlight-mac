@@ -77,6 +77,12 @@ milliseconds of each other, so the app takes an exclusive `flock` on
 `~/Library/Application Support/Presenter/instance.lock` and the loser exits.
 Checking the running-application list instead would be racy.
 
+The app installs an `xpc_set_event_stream_handler` for
+`com.apple.iokit.matching` at startup. Without it launchd holds the launch event
+as pending and undelivered, and relaunches the app the moment it exits — so Quit
+just produces another launch. Taking delivery of the event makes Quit mean quit,
+and the next launch comes from actually re-plugging the receiver.
+
 The trigger is `LaunchEvents` → `com.apple.iokit.matching` on
 `idVendor 1133 / idProduct 50494`. IOKit also reports devices that are already
 attached when the agent loads, so logging in with the dongle already in starts
@@ -183,6 +189,7 @@ while the remote is asleep.
 | `Sources/Onboarding.swift` | First-run setup window |
 | `Sources/StatusFile.swift` | Publishes state to `~/Library/Application Support/Presenter/status.json` |
 | `Sources/SingleInstance.swift` | File lock so only one copy drives the remote |
+| `Sources/LaunchEvents.swift` | Takes delivery of launchd's plug-in event |
 
 ## Protocol notes worth keeping
 

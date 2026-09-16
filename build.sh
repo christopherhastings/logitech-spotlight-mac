@@ -34,7 +34,7 @@ swiftc -O \
   -framework AppKit -framework IOKit -framework ScreenCaptureKit -framework ApplicationServices \
   Sources/HIDPP.swift Sources/Spotlight.swift Sources/Settings.swift Sources/Actions.swift \
   Sources/Overlay.swift Sources/Controller.swift Sources/SettingsView.swift \
-  Sources/StatusFile.swift Sources/SingleInstance.swift Sources/Onboarding.swift Sources/AppDelegate.swift Sources/main.swift \
+  Sources/LaunchEvents.swift Sources/StatusFile.swift Sources/SingleInstance.swift Sources/Onboarding.swift Sources/AppDelegate.swift Sources/main.swift \
   -o "$BIN"
 
 # Ad-hoc signature with a stable identifier so macOS remembers the

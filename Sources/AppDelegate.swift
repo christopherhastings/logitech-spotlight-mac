@@ -13,6 +13,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var batteryTimer: Timer?
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        // Must happen before anything else: an unconsumed launchd event means
+        // quitting just triggers another launch.
+        LaunchEvents.onDeviceEvent = { [weak self] in self?.controller.reconnect(quiet: true) }
+        LaunchEvents.consume()
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem.button?.image = NSImage(systemSymbolName: "dot.circle.and.hand.point.up.left.fill",
                                            accessibilityDescription: "Presenter")
@@ -22,8 +27,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.start()
         rebuildMenu()
 
-        // First run, or any launch where we still cannot act on the remote.
-        if !UserDefaults.standard.bool(forKey: "onboarded") || !Actions.hasAccessibility {
+        // Only on first run. After that a missing permission shows as a warning
+        // in the menu bar rather than a window in your face at every launch.
+        if !UserDefaults.standard.bool(forKey: "onboarded") {
             showOnboarding()
         }
 
