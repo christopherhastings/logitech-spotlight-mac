@@ -57,12 +57,20 @@ final class Controller: NSObject, SpotlightDelegate {
     private var timerEndsAt: Date?
     private var timerTicker: Timer?
     private var warnedAt: Set<Int> = []
+    /// Waiting for the first move off the title slide. Cleared once the timer has
+    /// started, so stopping it mid-talk does not let the next press restart it.
+    private(set) var timerArmed = true
     var timerText: String? {
         guard let end = timerEndsAt else { return nil }
         let left = Int(end.timeIntervalSinceNow.rounded())
         let sign = left < 0 ? "-" : ""
         let a = abs(left)
         return String(format: "%@%d:%02d", sign, a / 60, a % 60)
+    }
+    /// True when the timer is set up but has not begun, because it is waiting for
+    /// the presentation to actually start.
+    var timerWaiting: Bool {
+        timerEndsAt == nil && timerArmed && settings.timerAutoStart && !settings.timerUsesClockTime
     }
 
     // MARK: start / stop
@@ -253,6 +261,7 @@ final class Controller: NSObject, SpotlightDelegate {
         }
 
         activeHoldCID = cid
+        maybeAutoStartTimer(action)
         smoothedDX = 0; smoothedDY = 0
         gestureAccumulator = 0
         if settings.recenterOnHold || point == .zero { point = defaultPoint() }
@@ -298,7 +307,16 @@ final class Controller: NSObject, SpotlightDelegate {
         StatusFile.write(self)
     }
 
+    /// The talk begins when you leave the title slide, not when you pick up the
+    /// remote, so a waiting timer starts on the first forward press.
+    private func maybeAutoStartTimer(_ action: PresenterAction) {
+        guard timerWaiting, Controller.isSlideAdvance(action) else { return }
+        startTimer()
+        lastEventDescription = "timer started on first slide advance"
+    }
+
     private func run(_ action: PresenterAction, cid: UInt16) {
+        maybeAutoStartTimer(action)
         switch Actions.perform(action) {
         case .effect(let mapped):
             // A click mapped to an effect toggles it on and off.
@@ -330,8 +348,25 @@ final class Controller: NSObject, SpotlightDelegate {
 
     // MARK: presentation timer
 
+    /// A buzz point during the talk. `seconds` is how much time is left when it
+    /// fires; `buzzes` is how many pulses, so you can tell them apart by feel.
+    struct TimerMark: Equatable {
+        let seconds: Int
+        let buzzes: Int
+        let label: String
+    }
+
     func toggleTimer() {
         if timerEndsAt != nil { stopTimer() } else { startTimer() }
+    }
+
+    /// Set the timer up but leave it waiting for the first slide advance.
+    func armTimer() {
+        timerTicker?.invalidate(); timerTicker = nil
+        timerEndsAt = nil
+        timerStart = nil
+        timerArmed = true
+        onStatusChange?()
     }
 
     func startTimer() {
@@ -339,7 +374,9 @@ final class Controller: NSObject, SpotlightDelegate {
                                           minutes: settings.timerMinutes,
                                           finishMinuteOfDay: settings.timerFinishMinuteOfDay,
                                           now: Date())
+        timerStart = Date()
         warnedAt = []
+        timerArmed = false
         timerTicker?.invalidate()
         timerTicker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
         if settings.timerVibrate { device.vibrate(duration: 0x02, intensity: 0x60) }
@@ -349,7 +386,62 @@ final class Controller: NSObject, SpotlightDelegate {
     func stopTimer() {
         timerTicker?.invalidate(); timerTicker = nil
         timerEndsAt = nil
+        timerStart = nil
+        timerArmed = false
         onStatusChange?()
+    }
+
+    /// Does this action move the talk forward? Used to decide when a waiting timer
+    /// should start. A modified Return is "Start slideshow", which puts the title
+    /// slide up — that is not the start of the talk, so it does not count.
+    static func isSlideAdvance(_ action: PresenterAction) -> Bool {
+        let p = action.raw.split(separator: ":").map(String.init)
+        guard p.count >= 2, p[0] == "key", let code = Int(p[1]) else { return false }
+        let flags = p.count > 2 ? (UInt64(p[2]) ?? 0) : 0
+        guard flags == 0 else { return false }
+        return [Int(PresenterAction.kRight), Int(PresenterAction.kDown),
+                Int(PresenterAction.kPageDown), Int(PresenterAction.kSpace)].contains(code)
+    }
+
+    /// Turn the saved list into buzz points, biggest gap first. Marks that do not
+    /// fit inside the talk are dropped, and zero is always present.
+    static func timerMarks(_ raw: [String], totalSeconds: Int) -> [TimerMark] {
+        var out: [TimerMark] = []
+        var seen: Set<Int> = []
+        func add(_ m: TimerMark) {
+            guard m.seconds >= 0, m.seconds < totalSeconds || m.seconds == 0 else { return }
+            guard !seen.contains(m.seconds) else { return }
+            seen.insert(m.seconds); out.append(m)
+        }
+        for entry in raw {
+            let t = entry.trimmingCharacters(in: .whitespaces).lowercased()
+            if t == "half" {
+                add(TimerMark(seconds: totalSeconds / 2, buzzes: 1, label: "halfway"))
+            } else if let m = Int(t), m > 0 {
+                add(TimerMark(seconds: m * 60, buzzes: 2, label: "\(m) min left"))
+            }
+        }
+        add(TimerMark(seconds: 0, buzzes: 3, label: "time is up"))
+        return out.sorted { $0.seconds > $1.seconds }
+    }
+
+    private func currentMarks() -> [TimerMark] {
+        guard let end = timerEndsAt else { return [] }
+        let total = max(1, Int(end.timeIntervalSince(timerStart ?? Date()).rounded()))
+        return Controller.timerMarks(settings.timerMarks, totalSeconds: total)
+    }
+    private var timerStart: Date?
+
+    /// Pulse the remote. Several short pulses, or a few long ones at the end.
+    private func buzz(times: Int, long: Bool = false) {
+        guard settings.timerVibrate, times > 0 else { return }
+        deviceQueue.async { [weak self] in
+            guard let self else { return }
+            for i in 0..<times {
+                self.device.vibrate(duration: long ? 0x0A : 0x03, intensity: long ? 0xFF : 0x90)
+                if i < times - 1 { usleep(long ? 600_000 : 280_000) }
+            }
+        }
     }
 
     /// A countdown from now, or the next occurrence of a clock time.
@@ -371,11 +463,10 @@ final class Controller: NSObject, SpotlightDelegate {
     private func tick() {
         guard let end = timerEndsAt else { return }
         let left = Int(end.timeIntervalSinceNow.rounded())
-        for mark in [settings.timerWarnMinutes * 60, 60, 0] where left == mark && !warnedAt.contains(mark) {
-            warnedAt.insert(mark)
-            if settings.timerVibrate {
-                device.vibrate(duration: mark == 0 ? 0x0A : 0x04, intensity: mark == 0 ? 0xFF : 0x90)
-            }
+        for mark in currentMarks() where left == mark.seconds && !warnedAt.contains(mark.seconds) {
+            warnedAt.insert(mark.seconds)
+            lastEventDescription = "timer: \(mark.label)"
+            buzz(times: mark.buzzes, long: mark.seconds == 0)
         }
         onStatusChange?()
     }

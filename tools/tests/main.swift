@@ -177,6 +177,50 @@ do {
            "and lands at the same time tomorrow", "got \(passed)")
 }
 
+// MARK: auto-start and buzz marks
+
+print("\nController.isSlideAdvance")
+
+do {
+    expect(Controller.isSlideAdvance(.key(PresenterAction.kRight)),
+           "a plain right arrow starts a waiting timer")
+    expect(Controller.isSlideAdvance(.key(PresenterAction.kPageDown)),
+           "page down counts as moving the talk forward")
+    expect(!Controller.isSlideAdvance(.key(PresenterAction.kLeft)),
+           "going back does not start the timer")
+    // The big button held is "Start slideshow", which only puts the title slide up.
+    expect(!Controller.isSlideAdvance(.key(PresenterAction.kReturn, [.maskCommand, .maskShift])),
+           "starting the slideshow is not the start of the talk")
+    expect(!Controller.isSlideAdvance(.effect(.spotlight)),
+           "showing the spotlight does not start the timer")
+}
+
+print("\nController.timerMarks")
+
+do {
+    let m = Controller.timerMarks(["half", "5"], totalSeconds: 45 * 60)
+    expect(m.map { $0.seconds } == [22 * 60 + 30, 5 * 60, 0],
+           "halfway, the warning and the end, furthest away first", "got \(m.map { $0.seconds })")
+    expect(m.map { $0.buzzes } == [1, 2, 3],
+           "each kind has its own number of pulses so they can be told apart",
+           "got \(m.map { $0.buzzes })")
+
+    let short = Controller.timerMarks(["half", "30"], totalSeconds: 10 * 60)
+    expect(short.map { $0.seconds } == [5 * 60, 0],
+           "a 30-minute warning is dropped from a 10-minute talk", "got \(short.map { $0.seconds })")
+
+    let empty = Controller.timerMarks([], totalSeconds: 20 * 60)
+    expect(empty.map { $0.seconds } == [0], "the end always buzzes even with no marks set",
+           "got \(empty.map { $0.seconds })")
+
+    let dupes = Controller.timerMarks(["half", "10", "10"], totalSeconds: 20 * 60)
+    expect(dupes.count == 2, "a repeated mark only buzzes once", "got \(dupes.count)")
+
+    let junk = Controller.timerMarks(["", "abc", "-4", "0", "3"], totalSeconds: 20 * 60)
+    expect(junk.map { $0.seconds } == [3 * 60, 0], "nonsense entries are ignored",
+           "got \(junk.map { $0.seconds })")
+}
+
 // MARK: result
 
 print("\n\(checks - failures)/\(checks) checks passed")

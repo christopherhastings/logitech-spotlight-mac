@@ -18,7 +18,8 @@ final class SettingsModel: ObservableObject {
     @Published var smoothing: Double
     @Published var doubleClickInterval: Double
     @Published var timerMinutes: Double
-    @Published var timerWarn: Double
+    @Published var timerMarks: String
+    @Published var timerAutoStart: Bool
     @Published var timerVibrate: Bool
     @Published var timerUsesClock: Bool
     @Published var timerFinishMinute: Double
@@ -38,7 +39,9 @@ final class SettingsModel: ObservableObject {
         sensitivity = s.sensitivity; invertX = s.invertX; invertY = s.invertY
         recenter = s.recenterOnHold; hideFromShare = s.hideFromScreenShare
         smoothing = s.smoothing; doubleClickInterval = s.doubleClickInterval
-        timerMinutes = Double(s.timerMinutes); timerWarn = Double(s.timerWarnMinutes)
+        timerMinutes = Double(s.timerMinutes)
+        timerMarks = s.timerMarks.joined(separator: ", ")
+        timerAutoStart = s.timerAutoStart
         timerVibrate = s.timerVibrate
         timerUsesClock = s.timerUsesClockTime
         timerFinishMinute = Double(s.timerFinishMinuteOfDay)
@@ -75,7 +78,11 @@ final class SettingsModel: ObservableObject {
         s.sensitivity = sensitivity; s.invertX = invertX; s.invertY = invertY
         s.recenterOnHold = recenter; s.hideFromScreenShare = hideFromShare
         s.smoothing = smoothing; s.doubleClickInterval = doubleClickInterval
-        s.timerMinutes = Int(timerMinutes); s.timerWarnMinutes = Int(timerWarn)
+        s.timerMinutes = Int(timerMinutes)
+        s.timerMarks = timerMarks.split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { $0 == "half" || Int($0) != nil }
+        s.timerAutoStart = timerAutoStart
         s.timerVibrate = timerVibrate
         s.timerUsesClockTime = timerUsesClock
         s.timerFinishMinuteOfDay = Int(timerFinishMinute)
@@ -91,6 +98,16 @@ final class SettingsModel: ObservableObject {
     func resetButtons() {
         s.resetMappings(cids: buttons)
         reloadButtons()
+    }
+
+    /// Plain-English preview of the buzz points, counted from the start of the talk.
+    var markPreview: String {
+        let total = max(1, Int(timerMinutes) * 60)
+        let list = timerMarks.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
+        let marks = Controller.timerMarks(list, totalSeconds: total)
+        guard !marks.isEmpty else { return "" }
+        let parts = marks.map { "\($0.label) at \((total - $0.seconds) / 60) min in" }
+        return "Buzzes: " + parts.joined(separator: ", ")
     }
 }
 
@@ -273,15 +290,24 @@ struct SettingsView: View {
                     Text("Talk length: \(Int(model.timerMinutes)) min")
                 }
             }
-            Slider(value: $model.timerWarn, in: 1...30, step: 1) {
-                Text("First buzz at: \(Int(model.timerWarn)) min left")
+            if !model.timerUsesClock {
+                Toggle("Start the timer when I move off the title slide", isOn: $model.timerAutoStart)
+                Text("The timer waits until your first forward press, so setup time is not counted.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-            Toggle("Buzz the remote at the warning, at 1 minute, and at zero", isOn: $model.timerVibrate)
+
+            TextField("Buzz at", text: $model.timerMarks)
+            Text("Comma separated. \"half\" is the halfway point, a number is that many minutes left. The end always buzzes.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text(model.markPreview).font(.caption).foregroundStyle(.secondary)
+
+            Toggle("Buzz the remote at each of these", isOn: $model.timerVibrate)
             Divider()
             HStack {
-                Button(model.controller.timerText == nil ? "Start timer" : "Stop timer") {
+                Button(model.controller.timerText == nil ? "Start timer now" : "Stop timer") {
                     model.controller.toggleTimer()
                 }
+                Button("Wait for slide 2") { model.controller.armTimer() }
                 Button("Test buzz") { model.controller.device.vibrate() }
             }
         }.padding()

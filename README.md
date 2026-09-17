@@ -20,7 +20,7 @@ on **macOS 27 Golden Gate**, Apple silicon.
 | **Cursor control** | Drive the real mouse pointer with the remote, and click |
 | **Slide keys** | Arrow keys, page up/down, black screen, or any key you choose |
 | **Remapping** | Every button's press and hold, individually assignable |
-| **Talk timer** | Counts down in the menu bar and buzzes the remote in your hand |
+| **Talk timer** | Starts when you leave the title slide, buzzes at your pacing marks |
 | **Battery** | Charge level in the menu |
 
 Works with Keynote, PowerPoint, Google Slides, PDFs — anything that responds to
@@ -108,6 +108,26 @@ again. Useful for pinning a highlight on a diagram while you talk about it.
 Two gestures are available as button actions: hold and move your hand up and down
 to **scroll** a document, or to change **volume**.
 
+## The talk timer
+
+The timer waits for you. It does not start when you plug in or when you open the
+menu — it starts the first time you press forward, which is the moment you leave
+the title slide and actually begin talking. Setup time, waiting for the room to
+settle and the host's introduction are not counted.
+
+Set how long you have (Settings → Timer) and where you want to be nudged. The
+buzz points are a list: `half` means the halfway mark, a number means that many
+minutes left. The default is `half, 5`.
+
+For a 45-minute talk that begins at 2:03, that gives you a buzz at 2:25 to say
+you should be half way through, one at 2:43 to start wrapping up, and one at
+2:48 when you are out of time. They are told apart by feel — one pulse at
+halfway, two at a warning, three long ones at the end. The audience never sees
+or hears any of it.
+
+Turn the waiting off in Settings if you would rather start it by hand, or use
+**Arm timer for next presentation** in the menu to reset it between talks.
+
 ## The remote's buttons
 
 The Spotlight sends a **different control ID for a quick press than for a held
@@ -159,6 +179,8 @@ talks straight to the receiver does not depend on any of that continuing.
 | Cursor control and click | yes | yes |
 | Per-button press and hold mapping | yes | yes |
 | Countdown timer with vibration | yes | yes |
+| Timer starts on your first slide advance | — | yes |
+| Several buzz points per talk (halfway, wrap-up, end) | — | yes |
 | Battery level | yes | yes |
 | Freeze the effect | yes | yes |
 | Switch effect by double-pressing the top button | yes | yes |

@@ -85,10 +85,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(withTitle: "Timer: \(t) left", action: nil, keyEquivalent: "")
             menu.addItem(withTitle: "Stop timer", action: #selector(toggleTimer), keyEquivalent: "")
                 .target = self
+        } else if controller.timerWaiting {
+            statusItem.button?.title = ""
+            menu.addItem(withTitle: "Timer: waiting for your first slide advance",
+                         action: nil, keyEquivalent: "")
+            menu.addItem(withTitle: "Start \(Settings.shared.timerMinutes)-minute timer now",
+                         action: #selector(toggleTimer), keyEquivalent: "").target = self
         } else {
             statusItem.button?.title = ""
             menu.addItem(withTitle: "Start \(Settings.shared.timerMinutes)-minute timer",
                          action: #selector(toggleTimer), keyEquivalent: "").target = self
+            menu.addItem(withTitle: "Arm timer for next presentation",
+                         action: #selector(armTimer), keyEquivalent: "").target = self
         }
 
         // An escape hatch, shown only when there is actually something to dismiss.
@@ -108,6 +116,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleTimer() { controller.toggleTimer() }
+    @objc private func armTimer() { controller.armTimer() }
     @objc private func hideOverlay() { controller.overlay.hide() }
     @objc private func reconnect() { controller.reconnect() }
     @objc private func quit() { NSApp.terminate(nil) }

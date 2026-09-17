@@ -134,7 +134,17 @@ final class Settings {
         get { int("timerFinishMinuteOfDay", 15 * 60) } set { d.set(newValue, forKey: "timerFinishMinuteOfDay") }
     }
     var timerMinutes: Int { get { int("timerMinutes", 20) } set { d.set(newValue, forKey: "timerMinutes") } }
-    var timerWarnMinutes: Int { get { int("timerWarnMinutes", 5) } set { d.set(newValue, forKey: "timerWarnMinutes") } }
+
+    /// Wait for the first move off the title slide before the clock starts, so the
+    /// count matches the talk rather than the time you spent setting up.
+    var timerAutoStart: Bool { get { bool("timerAutoStart", true) } set { d.set(newValue, forKey: "timerAutoStart") } }
+
+    /// When to buzz, as a list. "half" is the halfway point of the talk; a number
+    /// is that many minutes left. Zero is always added, so the end always buzzes.
+    var timerMarks: [String] {
+        get { (d.array(forKey: "timerMarks") as? [String]) ?? ["half", "5"] }
+        set { d.set(newValue, forKey: "timerMarks") }
+    }
     var timerVibrate: Bool { get { bool("timerVibrate", true) } set { d.set(newValue, forKey: "timerVibrate") } }
 
     // Button mappings, keyed by control ID.
