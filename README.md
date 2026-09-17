@@ -20,6 +20,8 @@ on **macOS 27 Golden Gate**, Apple silicon.
 | **Cursor control** | Drive the real mouse pointer with the remote, and click |
 | **Slide keys** | Arrow keys, page up/down, black screen, or any key you choose |
 | **Remapping** | Every button's press and hold, individually assignable |
+| **Freeze** | Leave an effect pinned on the screen and carry on talking |
+| **Gestures** | Hold a button and move your hand to scroll or change volume |
 | **Talk timer** | Starts when you leave the title slide, buzzes at your pacing marks |
 | **Battery** | Charge level in the menu |
 
@@ -125,6 +127,8 @@ you should be half way through, one at 2:43 to start wrapping up, and one at
 halfway, two at a warning, three long ones at the end. The audience never sees
 or hears any of it.
 
+While it runs, the time left shows in the menu bar next to the app's icon.
+
 Turn the waiting off in Settings if you would rather start it by hand, or use
 **Arm timer for next presentation** in the menu to reset it between talks.
 
@@ -217,11 +221,14 @@ hands the buttons back, so the remote returns to being an ordinary clicker.
 ./run-tests.sh
 ```
 
-Covers the wire format: packet layout, reply matching, and the button and gyro
-decoders. No remote or receiver needed. Both bugs this project actually hit have
-a test — the report ID missing from byte 0, and a stale acknowledgement being
-read as the answer to the next request — and both mutations were checked to make
-the suite fail.
+44 checks, no remote or receiver needed. They cover the wire format (packet
+layout, reply matching, the button and gyro decoders) and the timer logic
+(countdown, clock-time rollover, which presses count as a slide advance, and how
+the buzz marks are worked out).
+
+Both bugs this project actually hit have a test — the report ID missing from
+byte 0, and a stale acknowledgement being read as the answer to the next
+request — and both mutations were checked to make the suite fail.
 
 ## Tools
 
