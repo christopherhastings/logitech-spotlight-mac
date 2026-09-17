@@ -20,6 +20,14 @@ final class SettingsModel: ObservableObject {
     @Published var timerMinutes: Double
     @Published var timerWarn: Double
     @Published var timerVibrate: Bool
+    @Published var timerUsesClock: Bool
+    @Published var timerFinishMinute: Double
+    @Published var freeze: Bool
+    @Published var cursorFollows: Bool
+    @Published var laserSize: Double
+    @Published var tint: Double
+    @Published var tintStrength: Double
+    @Published var cycle: [OverlayEffect]
     @Published var buttons: [UInt16] = []
     @Published var mappings: [UInt16: ButtonMapping] = [:]
     @Published var lastPressed: UInt16? = nil
@@ -32,6 +40,14 @@ final class SettingsModel: ObservableObject {
         smoothing = s.smoothing; doubleClickInterval = s.doubleClickInterval
         timerMinutes = Double(s.timerMinutes); timerWarn = Double(s.timerWarnMinutes)
         timerVibrate = s.timerVibrate
+        timerUsesClock = s.timerUsesClockTime
+        timerFinishMinute = Double(s.timerFinishMinuteOfDay)
+        freeze = s.freezeEffect
+        cursorFollows = s.cursorFollowsEffect
+        laserSize = s.laserSize
+        tint = s.highlightTint
+        tintStrength = s.highlightTintStrength
+        cycle = s.effectCycle
         reloadButtons()
         controller.onButtonSeen = { [weak self] cid in
             DispatchQueue.main.async { self?.lastPressed = cid; self?.reloadButtons() }
@@ -61,6 +77,14 @@ final class SettingsModel: ObservableObject {
         s.smoothing = smoothing; s.doubleClickInterval = doubleClickInterval
         s.timerMinutes = Int(timerMinutes); s.timerWarnMinutes = Int(timerWarn)
         s.timerVibrate = timerVibrate
+        s.timerUsesClockTime = timerUsesClock
+        s.timerFinishMinuteOfDay = Int(timerFinishMinute)
+        s.freezeEffect = freeze
+        s.cursorFollowsEffect = cursorFollows
+        s.laserSize = laserSize
+        s.highlightTint = tint
+        s.highlightTintStrength = tintStrength
+        s.effectCycle = cycle
         for (cid, m) in mappings { s.setMapping(m, for: cid) }
     }
 
@@ -163,6 +187,33 @@ struct SettingsView: View {
                 Text(String(format: "Magnifier zoom: %.1f×", model.zoom))
             }
             Slider(value: $model.laserHue, in: 0...1) { Text("Laser dot colour") }
+            Slider(value: $model.laserSize, in: 8...80) {
+                Text("Laser dot size: \(Int(model.laserSize)) px")
+            }
+            Divider()
+            Slider(value: $model.tintStrength, in: 0...0.8) {
+                Text(model.tintStrength < 0.02
+                     ? "Tint the dimmed area: off"
+                     : "Tint the dimmed area: \(Int(model.tintStrength * 100))%")
+            }
+            if model.tintStrength >= 0.02 {
+                Slider(value: $model.tint, in: 0...1) { Text("Tint colour") }
+            }
+            Divider()
+            Text("Switch effect cycles through:").font(.headline)
+            HStack {
+                ForEach([OverlayEffect.spotlight, .circle, .magnify, .laser], id: \.rawValue) { e in
+                    Toggle(e.label, isOn: Binding(
+                        get: { model.cycle.contains(e) },
+                        set: { on in
+                            var c = model.cycle
+                            if on { if !c.contains(e) { c.append(e) } }
+                            else { c.removeAll { $0 == e } }
+                            model.cycle = c.isEmpty ? [e] : c
+                        }))
+                    .toggleStyle(.checkbox)
+                }
+            }
             Divider()
             Toggle("Hide the overlay from screen recordings and shares", isOn: $model.hideFromShare)
             Text("Leave this off if you present over Zoom or Teams — remote viewers need to see the spotlight. Turn it on if you are recording and want a clean capture.")
@@ -181,6 +232,13 @@ struct SettingsView: View {
             Toggle("Invert up / down", isOn: $model.invertY)
             Toggle("Start from the middle of the screen each time", isOn: $model.recenter)
             Divider()
+            Toggle("Freeze the effect when you let go", isOn: $model.freeze)
+            Text("Point at what you want, release the button, and the effect stays put. Press the button again to clear it.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Toggle("Move the mouse cursor with the effect", isOn: $model.cursorFollows)
+            Text("Keeps links and video controls clickable while you are highlighting them.")
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            Divider()
             Slider(value: $model.smoothing, in: 0...0.9) {
                 Text(String(format: "Smoothing: %.2f", model.smoothing))
             }
@@ -198,8 +256,22 @@ struct SettingsView: View {
 
     private var timerTab: some View {
         Form {
-            Slider(value: $model.timerMinutes, in: 1...120, step: 1) {
-                Text("Talk length: \(Int(model.timerMinutes)) min")
+            Picker("", selection: $model.timerUsesClock) {
+                Text("Count down from now").tag(false)
+                Text("Finish at a set time").tag(true)
+            }
+            .pickerStyle(.radioGroup).labelsHidden()
+
+            if model.timerUsesClock {
+                Slider(value: $model.timerFinishMinute, in: 0...(24 * 60 - 1), step: 5) {
+                    Text("Finish at \(String(format: "%02d:%02d", Int(model.timerFinishMinute) / 60, Int(model.timerFinishMinute) % 60))")
+                }
+                Text("If that time has already gone by today, it means tomorrow.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Slider(value: $model.timerMinutes, in: 1...120, step: 1) {
+                    Text("Talk length: \(Int(model.timerMinutes)) min")
+                }
             }
             Slider(value: $model.timerWarn, in: 1...30, step: 1) {
                 Text("First buzz at: \(Int(model.timerWarn)) min left")

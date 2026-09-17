@@ -52,6 +52,9 @@ struct PresenterAction: Equatable {
         Preset(name: "Play / Pause",          action: PresenterAction(raw: "playpause")),
         Preset(name: "Start / stop timer",    action: PresenterAction(raw: "timer")),
         Preset(name: "Buzz the remote",       action: PresenterAction(raw: "vibrate")),
+        Preset(name: "Switch effect",         action: PresenterAction(raw: "cycle")),
+        Preset(name: "Scroll (move hand up/down)", action: PresenterAction(raw: "gesture:scroll")),
+        Preset(name: "Volume (move hand up/down)", action: PresenterAction(raw: "gesture:volume")),
     ]
 }
 
@@ -72,6 +75,13 @@ final class Settings {
 
     // Effect appearance
     var radius: Double { get { dbl("radius", 150) } set { d.set(newValue, forKey: "radius") } }
+    /// Tint applied to the dimmed area. 0 = plain black, which is the default.
+    var highlightTint: Double { get { dbl("highlightTint", 0) } set { d.set(newValue, forKey: "highlightTint") } }
+    var highlightTintStrength: Double {
+        get { dbl("highlightTintStrength", 0) } set { d.set(newValue, forKey: "highlightTintStrength") }
+    }
+    /// The laser dot is sized independently of the highlight circle.
+    var laserSize: Double { get { dbl("laserSize", 26) } set { d.set(newValue, forKey: "laserSize") } }
     var dimOpacity: Double { get { dbl("dimOpacity", 0.55) } set { d.set(newValue, forKey: "dimOpacity") } }
     var zoom: Double { get { dbl("zoom", 2.2) } set { d.set(newValue, forKey: "zoom") } }
     var borderWidth: Double { get { dbl("borderWidth", 0) } set { d.set(newValue, forKey: "borderWidth") } }
@@ -87,6 +97,25 @@ final class Settings {
     /// 0 = raw and jittery, 0.9 = very smooth but laggy.
     var smoothing: Double { get { dbl("smoothing", 0.45) } set { d.set(newValue, forKey: "smoothing") } }
     var invertY: Bool { get { bool("invertY", false) } set { d.set(newValue, forKey: "invertY") } }
+    /// Release the button and the effect stays where you left it, until the button
+    /// is pressed again. Logi Options+ calls this "freeze the effect".
+    var freezeEffect: Bool { get { bool("freezeEffect", false) } set { d.set(newValue, forKey: "freezeEffect") } }
+    /// Move the real mouse cursor along with the effect, so links stay clickable
+    /// while highlighting. This is what the remote does with Logitech's software.
+    var cursorFollowsEffect: Bool {
+        get { bool("cursorFollowsEffect", true) } set { d.set(newValue, forKey: "cursorFollowsEffect") }
+    }
+    /// Effects that "Switch effect" cycles through.
+    var effectCycle: [OverlayEffect] {
+        get {
+            let raw = (d.array(forKey: "effectCycle") as? [String])
+                ?? [OverlayEffect.spotlight.rawValue, OverlayEffect.magnify.rawValue, OverlayEffect.laser.rawValue]
+            let out = raw.compactMap { OverlayEffect(rawValue: $0) }.filter { $0 != .none }
+            return out.isEmpty ? [.spotlight] : out
+        }
+        set { d.set(newValue.map { $0.rawValue }, forKey: "effectCycle") }
+    }
+
     /// Re-centre the effect each time a hold starts, instead of resuming where it was.
     var recenterOnHold: Bool { get { bool("recenterOnHold", true) } set { d.set(newValue, forKey: "recenterOnHold") } }
     /// Off by default so a Zoom/Teams screen share shows the spotlight to remote viewers too.
@@ -95,7 +124,15 @@ final class Settings {
     // Timing
     var doubleClickInterval: Double { get { dbl("doubleClickInterval", 0.30) } set { d.set(newValue, forKey: "doubleClickInterval") } }
 
-    // Presentation timer
+    // Presentation timer. Logi Options+ offers a countdown or an alert at a clock
+    // time; both are here.
+    var timerUsesClockTime: Bool {
+        get { bool("timerUsesClockTime", false) } set { d.set(newValue, forKey: "timerUsesClockTime") }
+    }
+    /// Minutes past midnight for the clock-time finish, e.g. 15:00 is 900.
+    var timerFinishMinuteOfDay: Int {
+        get { int("timerFinishMinuteOfDay", 15 * 60) } set { d.set(newValue, forKey: "timerFinishMinuteOfDay") }
+    }
     var timerMinutes: Int { get { int("timerMinutes", 20) } set { d.set(newValue, forKey: "timerMinutes") } }
     var timerWarnMinutes: Int { get { int("timerWarnMinutes", 5) } set { d.set(newValue, forKey: "timerWarnMinutes") } }
     var timerVibrate: Bool { get { bool("timerVibrate", true) } set { d.set(newValue, forKey: "timerVibrate") } }
@@ -124,18 +161,19 @@ final class Settings {
     /// for a press than for a hold, so each row is one physical gesture.
     static func defaultMapping(_ cid: UInt16) -> ButtonMapping {
         switch cid {
-        case 0x0050:  // top button, quick press
-            return ButtonMapping(click: PresenterAction(raw: "click"))
+        case 0x0050:  // top button: click, and a double press switches effect
+            return ButtonMapping(click: PresenterAction(raw: "click"),
+                                 doubleClick: PresenterAction(raw: "cycle"))
         case 0x00D8:  // top button, held — the spotlight
             return ButtonMapping(hold: .effect(.spotlight))
         case 0x00D9:  // big button, quick press
             return ButtonMapping(click: .key(PresenterAction.kRight))
-        case 0x00DA:  // big button, held
-            return ButtonMapping(hold: .effect(.magnify))
+        case 0x00DA:  // big button, held — Logitech's default is Start presentation
+            return ButtonMapping(hold: .key(PresenterAction.kReturn, [.maskCommand, .maskShift]))
         case 0x00DB:  // back button, quick press
             return ButtonMapping(click: .key(PresenterAction.kLeft))
-        case 0x00DC:  // back button, held
-            return ButtonMapping(hold: PresenterAction(raw: "cursor"))
+        case 0x00DC:  // back button, held — Logitech's default is Blank screen
+            return ButtonMapping(hold: .key(PresenterAction.kB))
         default:
             return ButtonMapping()
         }

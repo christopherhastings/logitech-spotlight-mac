@@ -47,6 +47,15 @@ enum Actions {
         }
     }
 
+    /// Wheel events, for the scroll gesture.
+    static func scroll(by lines: Int) {
+        guard lines != 0,
+              let ev = CGEvent(scrollWheelEvent2Source: source, units: .line,
+                               wheelCount: 1, wheel1: Int32(lines), wheel2: 0, wheel3: 0)
+        else { return }
+        ev.post(tap: .cghidEventTap)
+    }
+
     static func leftClick(at p: CGPoint? = nil) {
         let loc = p ?? CGEvent(source: nil)?.location ?? .zero
         for t in [CGEventType.leftMouseDown, .leftMouseUp] {
@@ -57,7 +66,17 @@ enum Actions {
 
     /// Parse and run one action string. Effects and the timer are handled by the
     /// caller, which owns the overlay — this returns what it could not do itself.
-    enum Outcome { case handled, effect(OverlayEffect), cursor, timer, vibrate }
+    enum Outcome {
+        case handled
+        case effect(OverlayEffect)
+        case cursor
+        case timer
+        case vibrate
+        case cycleEffect
+        /// Vertical hand movement drives scrolling or volume, as in Logi Options+.
+        case gesture(Gesture)
+    }
+    enum Gesture { case scroll, volume }
 
     @discardableResult
     static func perform(_ action: PresenterAction) -> Outcome {
@@ -72,6 +91,9 @@ enum Actions {
         case "cursor":   return .cursor
         case "timer":    return .timer
         case "vibrate":  return .vibrate
+        case "cycle":    return .cycleEffect
+        case "gesture":
+            return .gesture(parts.count > 1 && parts[1] == "volume" ? .volume : .scroll)
         case "click":    leftClick()
         case "volume":
             mediaKey(parts.count > 1 && parts[1] == "down" ? NX_KEYTYPE_SOUND_DOWN : NX_KEYTYPE_SOUND_UP)

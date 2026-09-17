@@ -32,8 +32,11 @@ final class OverlayView: NSView {
     var center: CGPoint = .zero
     var radius: CGFloat = 140
     var dimOpacity: CGFloat = 0.55
+    /// Colour of the dimmed area. Black unless the user tints it.
+    var dimColor: NSColor = .black
     var zoom: CGFloat = 2.0
     var laserColor: NSColor = .systemRed
+    var laserDiameter: CGFloat = 26
     var borderWidth: CGFloat = 0
     var borderColor: NSColor = .white
 
@@ -85,6 +88,7 @@ final class OverlayView: NSView {
             p.addRect(root.bounds)
             p.addPath(hole)
             dimLayer.path = p
+            dimLayer.fillColor = dimColor.cgColor
             dimLayer.opacity = Float(dimOpacity)
             dimLayer.isHidden = false
             drawRing(hole)
@@ -126,7 +130,7 @@ final class OverlayView: NSView {
             }
 
         case .laser:
-            let d = max(radius * 0.18, 10)
+            let d = max(laserDiameter, 8)
             dotLayer.frame = CGRect(x: center.x - d / 2, y: center.y - d / 2, width: d, height: d)
             dotLayer.cornerRadius = d / 2
             dotLayer.backgroundColor = laserColor.cgColor
@@ -226,6 +230,12 @@ final class OverlayController {
         v.borderWidth = CGFloat(settings.borderWidth)
         v.borderColor = settings.borderColorValue
         v.laserColor = settings.laserColorValue
+        v.laserDiameter = CGFloat(settings.laserSize)
+        v.dimColor = settings.highlightTintStrength > 0
+            ? NSColor(calibratedHue: CGFloat(settings.highlightTint),
+                      saturation: CGFloat(settings.highlightTintStrength),
+                      brightness: 0.12, alpha: 1.0)
+            : .black
     }
 
     // MARK: magnifier source image

@@ -145,6 +145,38 @@ do {
            "an unrecognised control still shows its hex ID so it can be mapped")
 }
 
+// MARK: presentation timer
+
+print("\nController.timerEnd")
+
+do {
+    var cal = Calendar(identifier: .gregorian)
+    cal.timeZone = TimeZone(identifier: "UTC")!
+    func at(_ h: Int, _ m: Int) -> Date {
+        cal.date(from: DateComponents(timeZone: cal.timeZone, year: 2026, month: 9,
+                                      day: 16, hour: h, minute: m))!
+    }
+
+    let noon = at(12, 0)
+
+    let countdown = Controller.timerEnd(usesClockTime: false, minutes: 20,
+                                        finishMinuteOfDay: 0, now: noon, calendar: cal)
+    expect(countdown == at(12, 20), "a countdown ends the given number of minutes from now",
+           "got \(countdown)")
+
+    let later = Controller.timerEnd(usesClockTime: true, minutes: 20,
+                                    finishMinuteOfDay: 15 * 60, now: noon, calendar: cal)
+    expect(later == at(15, 0), "a clock time later today is taken as today", "got \(later)")
+
+    // The case that matters: setting a 9am finish during an afternoon talk must
+    // not produce a timer that has already expired.
+    let passed = Controller.timerEnd(usesClockTime: true, minutes: 20,
+                                     finishMinuteOfDay: 9 * 60, now: noon, calendar: cal)
+    expect(passed > noon, "a clock time already past today rolls to tomorrow", "got \(passed)")
+    expect(passed == cal.date(byAdding: .day, value: 1, to: at(9, 0))!,
+           "and lands at the same time tomorrow", "got \(passed)")
+}
+
 // MARK: result
 
 print("\n\(checks - failures)/\(checks) checks passed")

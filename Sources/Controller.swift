@@ -26,7 +26,16 @@ final class Controller: NSObject, SpotlightDelegate {
     private var smoothedDX: Double = 0
     private var smoothedDY: Double = 0
     private var activeMode: Mode = .idle
-    private enum Mode { case idle, effect(OverlayEffect), cursor }
+    private enum Mode { case idle, effect(OverlayEffect), cursor, gesture(Actions.Gesture) }
+
+    /// An effect left on screen after the button was released, when Freeze is on.
+    private var frozen = false
+    /// Which effect the "Switch effect" action has selected, overriding the one
+    /// the button is mapped to.
+    private var effectOverride: OverlayEffect?
+    /// Accumulated vertical movement for the scroll and volume gestures.
+    private var gestureAccumulator: Double = 0
+    private var lastVolumeStep = Date.distantPast
 
     // Observable bits for the UI
     @objc dynamic var statusText = "Starting…"
@@ -191,6 +200,29 @@ final class Controller: NSObject, SpotlightDelegate {
         smoothedDX = a * smoothedDX + (1 - a) * Double(dx)
         smoothedDY = a * smoothedDY + (1 - a) * Double(dy)
 
+        // Scrolling and volume care only about vertical movement, and work on
+        // accumulated travel rather than pointer position.
+        if case .gesture(let g) = activeMode {
+            gestureAccumulator += smoothedDY * settings.sensitivity
+            switch g {
+            case .scroll:
+                let lines = Int(gestureAccumulator / 12)
+                if lines != 0 {
+                    gestureAccumulator -= Double(lines) * 12
+                    Actions.scroll(by: -lines)
+                }
+            case .volume:
+                // Volume keys are coarse, so step them slowly and not too often.
+                if abs(gestureAccumulator) > 60, Date().timeIntervalSince(lastVolumeStep) > 0.12 {
+                    Actions.mediaKey(gestureAccumulator < 0 ? Actions.NX_KEYTYPE_SOUND_UP
+                                                            : Actions.NX_KEYTYPE_SOUND_DOWN)
+                    gestureAccumulator = 0
+                    lastVolumeStep = Date()
+                }
+            }
+            return
+        }
+
         let s = settings.sensitivity
         point.x += CGFloat(smoothedDX * s) * (settings.invertX ? -1 : 1)
         // Gyro Y grows downward; Cocoa Y grows upward.
@@ -198,50 +230,89 @@ final class Controller: NSObject, SpotlightDelegate {
         clampPoint()
 
         switch activeMode {
-        case .effect: overlay.move(to: point)
+        case .effect:
+            overlay.move(to: point)
+            // Keeping the real cursor under the effect is what makes links
+            // clickable while you are highlighting them.
+            if settings.cursorFollowsEffect { Actions.moveCursor(to: point) }
         case .cursor: Actions.moveCursor(to: point)
-        case .idle: break
+        case .idle, .gesture: break
         }
     }
 
     // MARK: hold handling
 
     private func beginHold(_ cid: UInt16, _ action: PresenterAction) {
+        // A frozen effect is dismissed by the next press, not replaced by it.
+        if frozen {
+            overlay.hide()
+            frozen = false
+            activeHoldCID = cid          // so the release is swallowed
+            activeMode = .idle
+            return
+        }
+
         activeHoldCID = cid
         smoothedDX = 0; smoothedDY = 0
+        gestureAccumulator = 0
         if settings.recenterOnHold || point == .zero { point = defaultPoint() }
         clampPoint()
+
         switch Actions.perform(action) {
-        case .effect(let e):
+        case .effect(let mapped):
+            let e = effectOverride ?? mapped
             activeMode = .effect(e)
             overlay.show(effect: e, at: point)
+            if settings.cursorFollowsEffect { Actions.moveCursor(to: point) }
         case .cursor:
             activeMode = .cursor
             Actions.moveCursor(to: point)
-        case .timer:   toggleTimer()
-        case .vibrate: device.vibrate()
-        case .handled: break
+        case .gesture(let g):
+            activeMode = .gesture(g)
+        case .cycleEffect: cycleEffect()
+        case .timer:       toggleTimer()
+        case .vibrate:     device.vibrate()
+        case .handled:     break
         }
     }
 
     private func endHold() {
-        if case .effect = activeMode { overlay.hide() }
+        if case .effect = activeMode {
+            // Freeze leaves the effect where you put it, until the next press.
+            if settings.freezeEffect { frozen = true } else { overlay.hide() }
+        }
         activeMode = .idle
         activeHoldCID = nil
     }
 
+    /// Step through the effects the user has enabled. Confirmed with a short buzz
+    /// rather than anything on screen, so the audience sees nothing.
+    private func cycleEffect() {
+        let cycle = settings.effectCycle
+        guard !cycle.isEmpty else { return }
+        let current = effectOverride ?? cycle.first!
+        let next = cycle[((cycle.firstIndex(of: current) ?? 0) + 1) % cycle.count]
+        effectOverride = next
+        lastEventDescription = "switched effect to \(next.label)"
+        device.vibrate(duration: 0x02, intensity: 0x70)
+        StatusFile.write(self)
+    }
+
     private func run(_ action: PresenterAction, cid: UInt16) {
         switch Actions.perform(action) {
-        case .effect(let e):
+        case .effect(let mapped):
             // A click mapped to an effect toggles it on and off.
-            if overlay.isVisible { overlay.hide(); activeMode = .idle }
+            if overlay.isVisible { overlay.hide(); frozen = false; activeMode = .idle }
             else {
+                let e = effectOverride ?? mapped
                 point = defaultPoint(); activeMode = .effect(e); overlay.show(effect: e, at: point)
             }
-        case .cursor:  activeMode = .cursor
-        case .timer:   toggleTimer()
-        case .vibrate: device.vibrate()
-        case .handled: break
+        case .cursor:      activeMode = .cursor
+        case .cycleEffect: cycleEffect()
+        case .timer:       toggleTimer()
+        case .vibrate:     device.vibrate()
+        case .gesture:     break      // meaningless without a button held down
+        case .handled:     break
         }
     }
 
@@ -264,7 +335,10 @@ final class Controller: NSObject, SpotlightDelegate {
     }
 
     func startTimer() {
-        timerEndsAt = Date().addingTimeInterval(Double(settings.timerMinutes) * 60)
+        timerEndsAt = Controller.timerEnd(usesClockTime: settings.timerUsesClockTime,
+                                          minutes: settings.timerMinutes,
+                                          finishMinuteOfDay: settings.timerFinishMinuteOfDay,
+                                          now: Date())
         warnedAt = []
         timerTicker?.invalidate()
         timerTicker = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.tick() }
@@ -276,6 +350,22 @@ final class Controller: NSObject, SpotlightDelegate {
         timerTicker?.invalidate(); timerTicker = nil
         timerEndsAt = nil
         onStatusChange?()
+    }
+
+    /// A countdown from now, or the next occurrence of a clock time.
+    static func timerEnd(usesClockTime: Bool, minutes: Int, finishMinuteOfDay: Int,
+                         now: Date, calendar: Calendar = .current) -> Date {
+        guard usesClockTime else {
+            return now.addingTimeInterval(Double(minutes) * 60)
+        }
+        let cal = calendar
+        let target = finishMinuteOfDay
+        var comps = cal.dateComponents([.year, .month, .day], from: now)
+        comps.hour = target / 60
+        comps.minute = target % 60
+        let today = cal.date(from: comps) ?? now
+        // If that time has already passed, mean tomorrow.
+        return today > now ? today : cal.date(byAdding: .day, value: 1, to: today) ?? today
     }
 
     private func tick() {

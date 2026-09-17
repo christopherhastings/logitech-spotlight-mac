@@ -94,17 +94,33 @@ remote sending arrow keys is identical on all three.
 
 Click Quit, or let `install.sh` answer it once and for all.
 
+## Pointer effects
+
+Hold the top button and the current effect follows where you point. The real
+mouse cursor moves with it, so links and video controls stay clickable while you
+are highlighting them. Double-press the top button to switch effect mid-talk —
+the remote buzzes to confirm, so nothing appears on screen for the audience.
+
+**Freeze** (Settings → Pointing) changes what releasing the button does: instead
+of clearing the effect, it leaves it where you put it until you press the button
+again. Useful for pinning a highlight on a diagram while you talk about it.
+
+Two gestures are available as button actions: hold and move your hand up and down
+to **scroll** a document, or to change **volume**.
+
 ## The remote's buttons
 
 The Spotlight sends a **different control ID for a quick press than for a held
 press**, and only streams gyro data on the held ones. So each physical button
 appears twice — once for each gesture. These IDs were measured, not guessed.
 
-| Button | Quick press | Held |
-|---|---|---|
-| Top (pointer) | `0x0050` → left click | `0x00D8` → **spotlight** |
-| Big (forward) | `0x00D9` → → arrow | `0x00DA` → magnifier |
-| Bottom (back) | `0x00DB` → ← arrow | `0x00DC` → move the cursor |
+| Button | Quick press | Double press | Held |
+|---|---|---|---|
+| Top (pointer) | `0x0050` → left click | switch effect | `0x00D8` → **the current effect** |
+| Big (forward) | `0x00D9` → → arrow | — | `0x00DA` → start presentation |
+| Bottom (back) | `0x00DB` → ← arrow | — | `0x00DC` → blank screen |
+
+These defaults match what the remote does with Logitech's own software.
 
 All remappable in Settings → Buttons. Press a button on the remote and its row
 highlights, so you can map buttons this table does not cover.
@@ -136,18 +152,19 @@ talks straight to the receiver does not depend on any of that continuing.
 
 | | Logi Options+ | Presenter |
 |---|---|---|
-| Highlight / spotlight | yes | yes |
+| Highlight / spotlight, size, dim and tint | yes | yes |
 | Magnifier | yes | yes |
-| Digital laser dot | yes | yes |
+| Digital laser dot, colour and size | yes | yes |
 | Circle outline | — | yes |
 | Cursor control and click | yes | yes |
 | Per-button press and hold mapping | yes | yes |
 | Countdown timer with vibration | yes | yes |
 | Battery level | yes | yes |
-| **Freeze the effect** (hold without holding) | yes | **no** |
-| **Gesture scrolling** | yes | **no** |
-| **Gesture volume** | yes | **no** — volume is assignable to a button instead |
-| **Alerts at a clock time** | yes | **no** — countdown only |
+| Freeze the effect | yes | yes |
+| Switch effect by double-pressing the top button | yes | yes |
+| Cursor tracks the effect, so links stay clickable | yes | yes |
+| Gesture scrolling and volume | yes | yes |
+| Timer alert at a clock time | yes | yes |
 | **Firmware updates** | yes | **no** |
 | **Other Logitech devices** | yes | **no** — Spotlight only |
 | Bluetooth | yes | untested, see [Status](#status) |
@@ -246,11 +263,6 @@ while the remote is asleep.
 
 Missing next to Logi Options+:
 
-* **Freeze the effect** — Options+ can leave the highlight on screen without
-  holding the button down. Here every effect is held-to-show.
-* **Gesture scrolling** and **gesture volume** — the gyro only drives effects and
-  the cursor. Volume is assignable to a button press instead.
-* **Clock-time alerts** — the timer counts down; it cannot buzz at 3:45pm.
 * **Firmware updates**, and support for any other Logitech device.
 
 Unverified or unfinished:
